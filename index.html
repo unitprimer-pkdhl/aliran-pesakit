@@ -252,6 +252,7 @@ footer p { margin: 0; max-width: 80ch; }
 .mtbl input { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; width: 100%; min-width: 84px; }
 .mtbl input[type="text"] { min-width: 110px; }
 .mtbl td, .mtbl th { padding: 6px; }
+.fld select { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; width: 100%; font: inherit; color: inherit; }
 details.card summary { cursor: pointer; font-weight: 600; color: var(--accent); }
 @media (max-width: 520px) { .tabs a { font-size: 12px; padding: 9px 2px; } }
 @media print {
@@ -457,6 +458,7 @@ details.card summary { cursor: pointer; font-weight: 600; color: var(--accent); 
       <h2>Ubah di sini, graf berubah terus</h2>
       <p class="hint">Sama seperti tetapan di tab Simulator.</p>
       <div class="form">
+        <div class="fld"><label for="lapBulan"><span class="sub">Bulan (hari biasa bagi bulan itu)</span></label><select id="lapBulan"></select></div>
         <div class="fld"><span><label for="lapPes">Kedatangan OPD sehari</label><b id="lapPesV"></b></span><input id="lapPes" type="range" min="200" max="1200" step="25"></div>
         <div class="fld"><span>Bilik doktor</span><div class="stepper" style="justify-self:start"><button id="lapDrM" aria-label="Kurang bilik doktor">−</button><b id="lapDr"></b><button id="lapDrP" aria-label="Tambah bilik doktor">+</button></div></div>
         <div class="fld"><span>Musim</span><div class="seg" id="lapMusim" role="group" aria-label="Musim"><button data-v="denggi">Denggi</button><button data-v="biasa">Biasa</button><button data-v="jerebu">Jerebu</button></div></div>
@@ -1199,7 +1201,7 @@ function dayStats(res, P) {
       $('#tg-' + s).onchange = e => { P.sasaran[s] = Math.max(1, +e.target.value || DEFAULT.sasaran[s]); changed(); };
     });
     $('#inName').oninput = e => { P.klinik = e.target.value; $('#hName').textContent = P.klinik || 'Klinik Kesihatan'; save(); };
-    $('#inPes').oninput = e => { P.pesakit = +e.target.value; changed(); };
+    $('#inPes').oninput = e => { P.pesakit = +e.target.value; P.bulanPilih = null; changed(); };
     $('#inPel').oninput = e => { P.pelaras = +e.target.value; changed(); };
     $('#inMak').onchange = e => { P.makmal = e.target.checked; changed(); };
     $('#inXr').onchange = e => { P.xray = e.target.checked; changed(); };
@@ -1292,7 +1294,7 @@ function dayStats(res, P) {
     return out;
   }
   function senarioTxt() {
-    return P.pesakit + ' kedatangan OPD, ' + P.staf.doktor + ' bilik doktor, ' + (P.corak === 'pagi' ? 'puncak pagi' : 'temujanji berperingkat') + ', ' + (MUSIM[P.musim] || P.musim);
+    return (P.bulanPilih ? 'hari biasa ' + P.bulanPilih + ', ' : '') + P.pesakit + ' kedatangan OPD, ' + P.staf.doktor + ' bilik doktor, ' + (P.corak === 'pagi' ? 'puncak pagi' : 'temujanji berperingkat') + ', ' + (MUSIM[P.musim] || P.musim);
   }
   function textHarian() {
     const hr = hourly(), wi = whatIf();
@@ -1495,6 +1497,10 @@ function dayStats(res, P) {
   function renderLaporan() {
     document.querySelectorAll('#segLap button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === lapMode)));
     $('#lapPes').value = P.pesakit; $('#lapPesV').textContent = P.pesakit; $('#lapDr').textContent = P.staf.doktor;
+    const sel = $('#lapBulan');
+    if (document.activeElement !== sel) {
+      sel.innerHTML = '<option value="">Tersuai (ikut slider)</option>' + P.bulan.map((m, i) => (+m.jumlah > 0 && +m.hari > 0) ? '<option value="' + i + '"' + (P.bulanPilih === m.nama ? ' selected' : '') + '>' + esc(m.nama) + ' · ' + Math.round(m.jumlah / m.hari) + ' sehari</option>' : '').join('');
+    }
     document.querySelectorAll('#lapMusim button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === P.musim)));
     document.querySelectorAll('#lapCorak button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === P.corak)));
     const body = $('#lapBody');
@@ -1509,7 +1515,7 @@ function dayStats(res, P) {
       body.querySelectorAll('button[data-del]').forEach(x => x.onclick = () => { P.bulan.splice(+x.dataset.del, 1); save(); renderLaporan(); });
       body.querySelectorAll('button[data-guna]').forEach(x => x.onclick = () => {
         const m = bulanStats()[+x.dataset.guna];
-        P.pesakit = m.avg; P.tindakan = []; P.log = []; lapMode = 'harian';
+        P.pesakit = m.avg; P.bulanPilih = m.nama; P.tindakan = []; P.log = []; lapMode = 'harian';
         save(); rebuild(); render(); window.scrollTo(0, 0);
       });
       const add = $('#blnAdd');
@@ -1517,7 +1523,12 @@ function dayStats(res, P) {
     }
   }
   document.querySelectorAll('#segLap button').forEach(x => x.onclick = () => { lapMode = x.dataset.v; renderLaporan(); });
-  $('#lapPes').oninput = e => { P.pesakit = +e.target.value; changed(); };
+  $('#lapPes').oninput = e => { P.pesakit = +e.target.value; P.bulanPilih = null; changed(); };
+  $('#lapBulan').onchange = e => {
+    const m = P.bulan[+e.target.value];
+    if (e.target.value === '' || !m) { P.bulanPilih = null; changed(); return; }
+    P.pesakit = Math.max(20, Math.round(m.jumlah / m.hari)); P.bulanPilih = m.nama; P.tindakan = []; P.log = []; changed();
+  };
   $('#lapDrM').onclick = () => { P.staf.doktor = Math.max(1, P.staf.doktor - 1); changed(); };
   $('#lapDrP').onclick = () => { P.staf.doktor = Math.min(40, P.staf.doktor + 1); changed(); };
   document.querySelectorAll('#lapMusim button').forEach(x => x.onclick = () => setMusim(x.dataset.v));
