@@ -252,6 +252,7 @@ footer p { margin: 0; max-width: 80ch; }
 .mtbl input { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; width: 100%; min-width: 84px; }
 .mtbl input[type="text"] { min-width: 110px; }
 .mtbl td, .mtbl th { padding: 6px; }
+details.card summary { cursor: pointer; font-weight: 600; color: var(--accent); }
 @media (max-width: 520px) { .tabs a { font-size: 12px; padding: 9px 2px; } }
 @media print {
   :root, :root:not([data-theme="light"]), :root[data-theme="dark"] { --bg: #fff; --panel: #fff; --panel-2: #f1f4f3; --line: #cfd8d6; --ink: #111; --muted: #444; --accent: #0f766e; --ok: #15803d; --warn: #b45309; --crit: #b91c1c; --shadow: none; color-scheme: light; }
@@ -450,6 +451,16 @@ footer p { margin: 0; max-width: 80ch; }
           <button class="ghost" id="lapCsv">Muat turun CSV</button>
           <button class="ghost" id="lapSalin">Salin ringkasan</button>
         </div>
+      </div>
+    </div>
+    <div class="card noprint">
+      <h2>Ubah di sini, graf berubah terus</h2>
+      <p class="hint">Sama seperti tetapan di tab Simulator.</p>
+      <div class="form">
+        <div class="fld"><span><label for="lapPes">Kedatangan OPD sehari</label><b id="lapPesV"></b></span><input id="lapPes" type="range" min="200" max="1200" step="25"></div>
+        <div class="fld"><span>Bilik doktor</span><div class="stepper" style="justify-self:start"><button id="lapDrM" aria-label="Kurang bilik doktor">−</button><b id="lapDr"></b><button id="lapDrP" aria-label="Tambah bilik doktor">+</button></div></div>
+        <div class="fld"><span>Musim</span><div class="seg" id="lapMusim" role="group" aria-label="Musim"><button data-v="denggi">Denggi</button><button data-v="biasa">Biasa</button><button data-v="jerebu">Jerebu</button></div></div>
+        <div class="fld"><span>Corak ketibaan</span><div class="seg" id="lapCorak" role="group" aria-label="Corak ketibaan"><button data-v="pagi">Puncak pagi</button><button data-v="sekata">Berperingkat</button></div></div>
       </div>
     </div>
     <div id="lapBody" class="lapbody"></div>
@@ -1179,7 +1190,7 @@ function dayStats(res, P) {
       (SVC[s] ? '<div class="fld"><span><label for="ms-' + s + '">' + SVC[s] + '</label><b id="mv-' + s + '"></b></span><input id="ms-' + s + '" type="range" min="0.5" max="20" step="0.5"></div>' : '') +
       '<div class="fld"><label for="tg-' + s + '"><span class="sub">Sasaran masa menunggu</span></label><div class="inrow"><input id="tg-' + s + '" type="number" min="1" max="240"><small>min</small></div></div>' +
       '</div>').join('');
-    document.querySelectorAll('.stepper button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('#stnForm .stepper button').forEach(b => b.onclick = () => {
       const s = b.dataset.s, min = s === 'pendidik' ? 0 : 1;
       P.staf[s] = Math.max(min, Math.min(40, P.staf[s] + (+b.dataset.d))); changed();
     });
@@ -1341,6 +1352,85 @@ function dayStats(res, P) {
   }
   function kilat(btn, teks) { const o = btn.textContent; btn.textContent = teks; setTimeout(() => { btn.textContent = o; }, 1800); }
 
+  function lapW() { return Math.max(300, ($('#lapBody').clientWidth || 340) - 38); }
+  const tx = (x, y, s, o) => '<text x="' + x + '" y="' + y + '" font-size="' + ((o && o.z) || 11) + '" fill="var(--' + ((o && o.c) || 'muted') + ')"' + (o && o.a ? ' text-anchor="' + o.a + '"' : '') + (o && o.b ? ' font-weight="600"' : '') + '>' + s + '</text>';
+  function chartJam(hr) {
+    const S = P.sasaran, W = lapW(), pl = 34, pr = 10, t1 = 22, h1 = 130, t2 = t1 + h1 + 34, h2 = 70, H = t2 + h2 + 26;
+    const t0 = hr[0].h * 60, tN = hr[hr.length - 1].h * 60 + 60;
+    const X = t => pl + (t - t0) / (tN - t0) * (W - pl - pr);
+    const wmax = Math.ceil(Math.max(S.doktor * 1.3, ...hr.map(x => x.w)) / 20) * 20, amax = Math.max(10, ...hr.map(x => x.arr));
+    const Y1 = v => t1 + (1 - v / wmax) * h1, Y2 = v => t2 + (1 - v / amax) * h2;
+    let o = tx(pl, 12, 'Purata tunggu doktor (minit)', { c: 'ink', b: 1 });
+    for (let v = 0; v <= wmax; v += wmax / 4) o += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + Y1(v) + '" y2="' + Y1(v) + '" stroke="var(--line)"/>' + tx(pl - 5, Y1(v) + 4, r0(v), { a: 'end' });
+    const pts = hr.filter(x => x.wn).map(x => [X(x.h * 60 + 30), Y1(x.w), x.w]);
+    if (pts.length) {
+      o += '<path d="M' + pts[0][0] + ' ' + Y1(0) + ' ' + pts.map(p => 'L' + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ') + ' L' + pts[pts.length - 1][0] + ' ' + Y1(0) + 'Z" fill="var(--accent)" fill-opacity=".12"/>';
+      o += '<path d="' + pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ') + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>';
+      pts.forEach(p => { const bad = p[2] >= S.doktor; o += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="4" fill="var(--' + (bad ? 'crit' : 'accent') + ')" stroke="var(--panel)" stroke-width="1.5"/>' + tx(p[0], p[1] - 8, r0(p[2]), { a: 'middle', c: bad ? 'crit' : 'ink', b: 1 }); });
+    }
+    o += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + Y1(S.doktor) + '" y2="' + Y1(S.doktor) + '" stroke="var(--ink)" stroke-dasharray="4 4" stroke-width="1.2"/>' + tx(W - pr, Y1(S.doktor) - 4, 'Sasaran ' + S.doktor, { a: 'end', c: 'ink' });
+    o += tx(pl, t2 - 10, 'Ketibaan pesakit setiap jam', { c: 'ink', b: 1 });
+    const bw = (W - pl - pr) / hr.length;
+    hr.forEach(x => { const cx = X(x.h * 60 + 30), w = Math.min(34, bw * 0.62);
+      o += '<rect x="' + (cx - w / 2) + '" y="' + Y2(x.arr) + '" width="' + w + '" height="' + (t2 + h2 - Y2(x.arr)) + '" rx="3" fill="var(--muted)" fill-opacity=".45"/>' + tx(cx, Y2(x.arr) - 4, x.arr, { a: 'middle', z: 10 }) + tx(cx, H - 8, String(x.h).padStart(2, '0'), { a: 'middle' }); });
+    if (T >= t0 && T <= tN) o += '<line x1="' + X(T) + '" x2="' + X(T) + '" y1="' + t1 + '" y2="' + (t2 + h2) + '" stroke="var(--ink)" stroke-width="1.2" stroke-dasharray="2 3"/>';
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="display:block;width:100%;height:auto" role="img" aria-label="Purata tunggu doktor dan ketibaan pesakit ikut jam">' + o + '</svg>';
+  }
+  function hbars(rows, opt) {
+    const W = lapW(), nr = W < 520, lw = nr ? 0 : 190, pr = 74, top = nr ? 15 : 0, rh = (opt.rh || 30) + top, H = rows.length * rh + 22;
+    const max = Math.max(opt.target || 0, ...rows.map(r => r.v)) * 1.05 || 1;
+    const X = v => lw + v / max * (W - lw - pr);
+    let o = '';
+    rows.forEach((r, i) => { const y = 6 + i * rh;
+      o += (nr ? tx(0, y + 11, esc(r.label), { c: 'ink', b: r.bold }) : tx(lw - 8, y + rh / 2 + 2, esc(r.label), { a: 'end', c: 'ink', b: r.bold })) +
+        '<rect x="' + lw + '" y="' + (y + top + 5) + '" width="' + Math.max(1, X(r.v) - lw) + '" height="' + (rh - top - 12) + '" rx="3" fill="var(--' + r.col + ')" fill-opacity="' + (r.op || .85) + '"/>' +
+        tx(X(r.v) + 6, y + top + (rh - top) / 2 + 2, r.txt, { c: 'ink', b: 1 }); });
+    if (opt.target) o += '<line x1="' + X(opt.target) + '" x2="' + X(opt.target) + '" y1="2" y2="' + (H - 16) + '" stroke="var(--ink)" stroke-dasharray="4 4" stroke-width="1.2"/>' + tx(X(opt.target), H - 3, opt.tlabel, { a: 'middle', c: 'ink' });
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="display:block;width:100%;height:auto" role="img" aria-label="' + opt.aria + '">' + o + '</svg>';
+  }
+  function chartStesen() {
+    const W = lapW(), vis = visible(), lw = Math.min(150, W * 0.38), pr = 78, rh = 32, H = vis.length * rh + 8;
+    const max = Math.max(...vis.map(s => Math.max(day.st[s].avg, P.sasaran[s]))) * 1.08 || 1;
+    const X = v => lw + v / max * (W - lw - pr);
+    let o = '';
+    vis.forEach((s, i) => { const y = 4 + i * rh, v = day.st[s].avg, t = P.sasaran[s], L = lvl(v, t);
+      o += tx(lw - 8, y + rh / 2 + 3, PENDEK[s], { a: 'end', c: 'ink' }) +
+        '<rect x="' + lw + '" y="' + (y + 6) + '" width="' + (W - lw - pr) + '" height="' + (rh - 14) + '" rx="3" fill="var(--panel-2)"/>' +
+        '<rect x="' + lw + '" y="' + (y + 6) + '" width="' + Math.max(1, X(v) - lw) + '" height="' + (rh - 14) + '" rx="3" fill="var(--' + L + ')" fill-opacity=".85"/>' +
+        '<line x1="' + X(t) + '" x2="' + X(t) + '" y1="' + (y + 2) + '" y2="' + (y + rh - 4) + '" stroke="var(--ink)" stroke-width="2"/>' +
+        tx(W - pr + 6, y + rh / 2 + 3, r0(v) + ' / ' + t + ' min', { c: L === 'ok' ? 'ink' : L, b: 1 }); });
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="display:block;width:100%;height:auto" role="img" aria-label="Purata masa menunggu setiap stesen berbanding sasaran">' + o + '</svg>';
+  }
+  function chartDx() {
+    const rows = P.mix.map(d => ({ d, pt: (day.cnt[d.key] || 0) / day.n * 100, mn: (day.drMin[d.key] || 0) / day.drTot * 100 })).filter(r => r.pt > 0).sort((a, b) => b.mn - a.mn).slice(0, 8);
+    const W = lapW(), nr = W < 520, lw = nr ? 0 : 210, pr = 40, top = nr ? 14 : 0, rh = 34 + top, H = rows.length * rh + 6;
+    const max = Math.max(...rows.map(r => Math.max(r.pt, r.mn))) * 1.05 || 1;
+    const X = v => lw + v / max * (W - lw - pr);
+    let o = '';
+    rows.forEach((r, i) => { const y = 3 + i * rh;
+      o += (nr ? tx(0, y + 11, esc(r.d.nama), { c: 'ink' }) : tx(lw - 8, y + rh / 2 + 3, esc(r.d.nama), { a: 'end', c: 'ink' })) +
+        '<rect x="' + lw + '" y="' + (y + top + 5) + '" width="' + Math.max(1, X(r.pt) - lw) + '" height="10" rx="2" fill="var(--muted)" fill-opacity=".5"/>' + tx(X(r.pt) + 5, y + top + 14, r0(r.pt) + '%', { z: 10 }) +
+        '<rect x="' + lw + '" y="' + (y + top + 17) + '" width="' + Math.max(1, X(r.mn) - lw) + '" height="10" rx="2" fill="var(--accent)"/>' + tx(X(r.mn) + 5, y + top + 26, r0(r.mn) + '%', { z: 10, c: 'ink', b: 1 }); });
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="display:block;width:100%;height:auto" role="img" aria-label="Bahagian pesakit dan bahagian masa doktor bagi setiap diagnosis">' + o + '</svg>';
+  }
+  function chartPilihan(wi) {
+    const S = P.sasaran, col = v => v <= S.jumlah ? 'ok' : v <= S.jumlah * 1.15 ? 'warn' : 'crit';
+    const rows = [{ label: 'Senario sekarang', v: day.avgJ, col: 'muted', op: .6, txt: r0(day.avgJ) + ' min', bold: 1 }].concat(wi.map(w => ({ label: w.label.replace(' (ketibaan sekata)', '').replace(' (FBC di triaj)', '').replace('Pendidik diabetes ambil alih kaunseling DM kompleks', 'Pendidik diabetes'), v: w.avgJ, col: col(w.avgJ), txt: r0(w.avgJ) + (Math.abs(w.jimat) >= 0.5 ? ' (' + (w.jimat > 0 ? '−' : '+') + r0(Math.abs(w.jimat)) + ')' : '') })));
+    return hbars(rows, { target: S.jumlah, tlabel: 'Sasaran ' + S.jumlah, aria: 'Purata masa dalam klinik bagi setiap pilihan penambahbaikan', rh: 32 });
+  }
+  function chartBulanDr(b) {
+    const W = Math.max(lapW(), b.length * 64), H = 200, pl = 30, pr = 10, pt = 22, pb = 26;
+    const ymax = Math.ceil(Math.max(P.staf.doktor, ...b.map(x => x.need)) * 1.2);
+    const Y = v => pt + (1 - v / ymax) * (H - pt - pb), bw = (W - pl - pr) / b.length;
+    let o = '';
+    for (let v = 0; v <= ymax; v += Math.max(1, Math.round(ymax / 4))) o += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="var(--line)"/>' + tx(pl - 5, Y(v) + 4, v, { a: 'end' });
+    b.forEach((x, i) => { const cx = pl + bw * i + bw / 2, w = Math.min(46, bw * 0.6), over = x.need > P.staf.doktor;
+      o += '<rect x="' + (cx - w / 2) + '" y="' + Y(x.need) + '" width="' + w + '" height="' + (H - pb - Y(x.need)) + '" rx="3" fill="var(--' + (over ? 'crit' : 'ok') + ')" fill-opacity=".8"/>' + tx(cx, Y(x.need) - 5, x.need.toFixed(1), { a: 'middle', c: 'ink', b: 1 }) + tx(cx, H - 8, esc(x.nama.length > 9 ? x.nama.slice(0, 8) + '…' : x.nama), { a: 'middle', c: 'ink' }); });
+    o += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + Y(P.staf.doktor) + '" y2="' + Y(P.staf.doktor) + '" stroke="var(--ink)" stroke-dasharray="4 4" stroke-width="1.4"/>' + tx(W - pr, Y(P.staf.doktor) - 5, 'Ada ' + P.staf.doktor + ' bilik doktor', { a: 'end', c: 'ink' });
+    return '<div class="tbl-wrap"><svg viewBox="0 0 ' + W + ' ' + H + '" style="display:block;width:' + (W > lapW() ? W + 'px' : '100%') + ';height:auto" role="img" aria-label="Doktor setara diperlukan bagi setiap bulan">' + o + '</svg></div>';
+  }
+  function setMusim(v) { const pr = PRESET[v]; P.mix.forEach(d => { d.pct = pr[d.key] != null ? pr[d.key] : BASE_PCT[d.key]; }); P.musim = v; changed(); }
+
   function htmlHarian() {
     const S = P.sasaran, hr = hourly(), wi = whatIf();
     let h = '<div class="card"><h2>Analisa harian: ' + esc(P.klinik) + '</h2><p class="hint">Senario: ' + esc(senarioTxt()) + ' · Dijana ' + tarikh() + ' · Data simulasi</p><div class="kpis">' +
@@ -1350,11 +1440,17 @@ function dayStats(res, P) {
       kpi('Masa doktor', (day.drTot / day.n).toFixed(1) + '<small> min</small>', 'Purata setiap pesakit', '') +
       kpi('Pesakit terakhir keluar', fmt(day.lastLeave), day.lastLeave > 1020 ? r0(day.lastLeave - 1020) + ' min selepas 17:00' : 'Dalam waktu operasi', day.lastLeave > 1050 ? 'crit' : day.lastLeave > 1020 ? 'warn' : 'ok') +
       kpi('Rujukan hospital', day.hosp + '', day.ulangan ? day.ulangan + ' lawatan ulangan' : 'Tiada lawatan ulangan', '') + '</div></div>';
+    const wh = hr.filter(x => x.wn >= 5).sort((a, b) => b.w - a.w)[0];
+    h += '<div class="card"><h2>' + (wh ? 'Tunggu doktor memuncak pada ' + fmt(wh.h * 60) + '–' + fmt(wh.h * 60 + 60) + ': ' + r0(wh.w) + ' minit' : 'Tunggu doktor ikut jam') + '</h2><p class="hint">Titik merah melebihi sasaran. Garis menegak ialah masa simulasi semasa.</p>' + chartJam(hr) + '</div>';
+    h += '<div class="card"><h2>Masa menunggu setiap stesen</h2><p class="hint">Purata sehari, minit. Garis hitam pada setiap bar ialah sasaran stesen itu.</p>' + chartStesen() + '</div>';
+    h += '<div class="card"><h2>Ke mana masa doktor pergi</h2><p class="hint">Bar kelabu ialah % pesakit, bar hijau ialah % masa doktor.</p>' + chartDx() + '</div>';
+    const best = wi[0];
+    h += '<div class="card"><h2>' + (best && best.jimat >= 1 ? 'Paling berkesan: ' + esc(best.label) + ' (jimat ' + r0(best.jimat) + ' min)' : 'Kesan pilihan penambahbaikan') + '</h2><p class="hint">Purata masa dalam klinik (minit) jika setiap pilihan dilaksana sepanjang hari, satu demi satu.</p>' + chartPilihan(wi) + '</div>';
     h += '<div class="card"><h2>Dapatan utama</h2><ol class="find">' + findings(hr).map(x => '<li>' + esc(x) + '</li>').join('') + '</ol></div>';
-    h += '<div class="card"><h2>Ikut jam</h2><p class="hint">Purata tunggu dikira bagi pesakit yang masuk giliran doktor pada jam itu.</p><div class="tbl-wrap"><table><thead><tr><th>Jam</th><th>Ketibaan</th><th>Tunggu doktor</th><th>Puncak giliran</th></tr></thead><tbody>' +
-      hr.map(x => '<tr><td>' + fmt(x.h * 60) + '</td><td>' + x.arr + '</td><td class="' + (x.wn && x.w >= S.doktor ? 'bad' : '') + '">' + (x.wn ? r0(x.w) + ' min' : '—') + '</td><td>' + x.pk + '</td></tr>').join('') + '</tbody></table></div></div>';
-    h += '<div class="card"><h2>Kesan pilihan penambahbaikan</h2><p class="hint">Setiap pilihan diuji untuk sepanjang hari, satu demi satu, berbanding senario semasa (' + r0(day.avgJ) + ' min).</p><div class="tbl-wrap"><table><thead><tr><th>Pilihan</th><th>Masa dalam klinik</th><th>Beza</th><th>Jumpa doktor ≤ ' + S.jumpaDr + '</th><th>Terakhir keluar</th></tr></thead><tbody>' +
-      wi.map(w => '<tr><td>' + esc(w.label) + '</td><td>' + r0(w.avgJ) + ' min</td><td class="' + (w.jimat >= 0.5 ? 'good' : w.jimat <= -0.5 ? 'bad' : '') + '">' + (Math.abs(w.jimat) < 0.5 ? '—' : (w.jimat > 0 ? '−' : '+') + r0(Math.abs(w.jimat)) + ' min') + '</td><td>' + r0(w.dr) + '%</td><td>' + fmt(w.last) + '</td></tr>').join('') + '</tbody></table></div></div>';
+    h += '<details class="card"><summary>Lihat angka dalam jadual</summary><div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Jam</th><th>Ketibaan</th><th>Tunggu doktor</th><th>Puncak giliran</th></tr></thead><tbody>' +
+      hr.map(x => '<tr><td>' + fmt(x.h * 60) + '</td><td>' + x.arr + '</td><td class="' + (x.wn && x.w >= S.doktor ? 'bad' : '') + '">' + (x.wn ? r0(x.w) + ' min' : '—') + '</td><td>' + x.pk + '</td></tr>').join('') + '</tbody></table></div>' +
+      '<div class="tbl-wrap" style="margin-top:16px"><table><thead><tr><th>Pilihan</th><th>Masa dalam klinik</th><th>Beza</th><th>Jumpa doktor ≤ ' + S.jumpaDr + '</th><th>Terakhir keluar</th></tr></thead><tbody>' +
+      wi.map(w => '<tr><td>' + esc(w.label) + '</td><td>' + r0(w.avgJ) + ' min</td><td class="' + (w.jimat >= 0.5 ? 'good' : w.jimat <= -0.5 ? 'bad' : '') + '">' + (Math.abs(w.jimat) < 0.5 ? '—' : (w.jimat > 0 ? '−' : '+') + r0(Math.abs(w.jimat)) + ' min') + '</td><td>' + r0(w.dr) + '%</td><td>' + fmt(w.last) + '</td></tr>').join('') + '</tbody></table></div></details>';
     return h;
   }
 
@@ -1389,6 +1485,7 @@ function dayStats(res, P) {
     h += '<div class="card"><h2>Analisa bulanan: ' + esc(P.klinik) + '</h2><p class="hint">Purata masa dalam klinik (minit) pada hari biasa bagi setiap bulan. Kedatangan ialah angka sebenar; masa ialah simulasi dengan ' + P.staf.doktor + ' bilik doktor dan case-mix semasa. Dijana ' + tarikh() + '.</p>' +
       '<div class="tbl-wrap"><svg viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + Math.max(600, b.length * 96) + 'px;width:100%;height:auto" role="img" aria-label="Purata masa dalam klinik bagi setiap bulan">' + c + '</svg></div>' +
       '<ol class="find" style="margin-top:14px">' + fs.map(x => '<li>' + esc(x) + '</li>').join('') + '</ol></div>';
+    h += '<div class="card"><h2>Doktor diperlukan berbanding yang ada</h2><p class="hint">Doktor setara pada utilisasi 85%. Bar merah bermaksud keperluan melebihi bilik doktor sedia ada.</p>' + chartBulanDr(b) + '</div>';
     h += '<div class="card"><h2>Jadual bulanan</h2><div class="tbl-wrap"><table><thead><tr><th>Bulan</th><th>Sehari</th><th>Dalam klinik</th><th>Jumpa doktor ≤ ' + S.jumpaDr + '</th><th>Tunggu doktor</th><th>Terakhir keluar</th><th>Doktor perlu</th><th class="noprint"></th></tr></thead><tbody>' +
       b.map(x => '<tr><td>' + esc(x.nama) + '</td><td>' + x.avg + '</td><td class="' + (x.avgJ > S.jumlah ? 'bad' : 'good') + '">' + r0(x.avgJ) + ' min</td><td>' + r0(x.dr) + '%</td><td>' + r0(x.wDr) + ' min</td><td>' + fmt(x.last) + '</td><td>' + x.need.toFixed(1) + '</td><td class="noprint"><button class="ghost" data-guna="' + x.i + '">Simulasi</button></td></tr>').join('') +
       '</tbody></table></div><p class="mixnote noprint">Tekan Simulasi untuk memuatkan purata bulan itu ke dalam Dashboard dan analisa harian.</p></div>';
@@ -1397,7 +1494,11 @@ function dayStats(res, P) {
 
   function renderLaporan() {
     document.querySelectorAll('#segLap button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === lapMode)));
+    $('#lapPes').value = P.pesakit; $('#lapPesV').textContent = P.pesakit; $('#lapDr').textContent = P.staf.doktor;
+    document.querySelectorAll('#lapMusim button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === P.musim)));
+    document.querySelectorAll('#lapCorak button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === P.corak)));
     const body = $('#lapBody');
+    if (lapMode === 'bulanan' && body.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
     body.innerHTML = lapMode === 'harian' ? htmlHarian() : htmlBulanan();
     if (lapMode === 'bulanan') {
       body.querySelectorAll('.mtbl input').forEach(inp => inp.onchange = e => {
@@ -1416,6 +1517,11 @@ function dayStats(res, P) {
     }
   }
   document.querySelectorAll('#segLap button').forEach(x => x.onclick = () => { lapMode = x.dataset.v; renderLaporan(); });
+  $('#lapPes').oninput = e => { P.pesakit = +e.target.value; changed(); };
+  $('#lapDrM').onclick = () => { P.staf.doktor = Math.max(1, P.staf.doktor - 1); changed(); };
+  $('#lapDrP').onclick = () => { P.staf.doktor = Math.min(40, P.staf.doktor + 1); changed(); };
+  document.querySelectorAll('#lapMusim button').forEach(x => x.onclick = () => setMusim(x.dataset.v));
+  document.querySelectorAll('#lapCorak button').forEach(x => x.onclick = () => { P.corak = x.dataset.v; changed(); });
   $('#lapSalin').onclick = e => {
     const t = lapMode === 'harian' ? textHarian() : textBulanan(), btn = e.currentTarget;
     try { navigator.clipboard.writeText(t).then(() => kilat(btn, 'Disalin'), () => kilat(btn, 'Tidak dapat disalin')); } catch (err) { kilat(btn, 'Tidak dapat disalin'); }
