@@ -244,6 +244,25 @@ footer p { margin: 0; max-width: 80ch; }
   .kpi .v { font-size: 28px; }
 }
 @media (prefers-reduced-motion: reduce) { .pill.crit::before { animation: none; } }
+
+/* Laporan */
+.lapbar { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; }
+.lapbody { display: flex; flex-direction: column; gap: 16px; }
+.find { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 8px; max-width: 75ch; }
+.mtbl input { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; width: 100%; min-width: 84px; }
+.mtbl input[type="text"] { min-width: 110px; }
+.mtbl td, .mtbl th { padding: 6px; }
+@media (max-width: 520px) { .tabs a { font-size: 12px; padding: 9px 2px; } }
+@media print {
+  :root, :root:not([data-theme="light"]), :root[data-theme="dark"] { --bg: #fff; --panel: #fff; --panel-2: #f1f4f3; --line: #cfd8d6; --ink: #111; --muted: #444; --accent: #0f766e; --ok: #15803d; --warn: #b45309; --crit: #b91c1c; --shadow: none; color-scheme: light; }
+  .sticky, footer, .noprint, .hdr-side, .panel:not(#p-laporan) { display: none !important; }
+  #p-laporan { display: flex !important; }
+  .hero { background: none; color: #111; border-radius: 0; }
+  .hero h1 { color: #111; } .hero .sub, .eyebrow { color: #444; }
+  .card, .kpi { break-inside: avoid; box-shadow: none; }
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
 </style>
 
 </head>
@@ -270,6 +289,7 @@ footer p { margin: 0; max-width: 80ch; }
       <a href="#simulator" data-tab="simulator">Simulator</a>
       <a href="#peta" data-tab="peta">Peta</a>
       <a href="#tindakan" data-tab="tindakan">Tindakan</a>
+      <a href="#laporan" data-tab="laporan">Laporan</a>
     </nav>
     <div class="timebar">
       <div class="tb-row">
@@ -414,6 +434,25 @@ footer p { margin: 0; max-width: 80ch; }
       <button class="ghost" id="btnClearAct">Batal semua tindakan</button>
     </div>
     <p class="note">Cadangan ini dikira dengan menguji setiap pilihan dalam simulasi, bukan model AI. Semak kelayakan staf dan keperluan unit lain sebelum memindahkan sesiapa.</p>
+  </section>
+  <!-- LAPORAN -->
+  <section class="panel" id="p-laporan">
+    <div class="card noprint">
+      <h2>Laporan</h2>
+      <p class="hint">Dijana daripada tetapan semasa di tab Simulator. Simpan sebagai PDF atau CSV untuk slaid dan Excel.</p>
+      <div class="lapbar">
+        <div class="seg" id="segLap" role="group" aria-label="Jenis laporan">
+          <button data-v="harian">Harian</button>
+          <button data-v="bulanan">Bulanan</button>
+        </div>
+        <div class="btns">
+          <button class="btn" id="lapCetak">Cetak / simpan PDF</button>
+          <button class="ghost" id="lapCsv">Muat turun CSV</button>
+          <button class="ghost" id="lapSalin">Salin ringkasan</button>
+        </div>
+      </div>
+    </div>
+    <div id="lapBody" class="lapbody"></div>
   </section>
 </main>
 
@@ -713,7 +752,8 @@ function dayStats(res, P) {
     staf: { daftar: 6, triaj: 7, doktor: 15, makmal: 2, xray: 1, rawatan: 4, pendidik: 1, farmasi: 5 },
     masa: { daftar: 2.5, triaj: 3.5, makmal: 3, xray: 10, farmasi: 4 },
     sasaran: { daftar: 10, triaj: 10, doktor: 30, makmal: 15, xray: 30, rawatan: 15, pendidik: 30, farmasi: 30, jumlah: 90, jumpaDr: 60 },
-    mix: clone(DIAG), tindakan: [], log: []
+    mix: clone(DIAG), tindakan: [], log: [],
+    bulan: [{ nama: 'Jan 2026', jumlah: 9143, hari: 20 }, { nama: 'Feb 2026', jumlah: 9143, hari: 20 }, { nama: 'Mac 2026', jumlah: 9737, hari: 20 }, { nama: 'Apr 2026', jumlah: 13296, hari: 20 }, { nama: 'Mei 2026', jumlah: 12183, hari: 20 }, { nama: 'Jun 2026', jumlah: 12494, hari: 20 }]
   };
   const BASE_PCT = {}; DIAG.forEach(d => BASE_PCT[d.key] = d.pct);
   const PRESET = { denggi: {}, biasa: { demam: 3, urti: 16, asmaex: 1 }, jerebu: { demam: 5, urti: 19, asmaex: 3, asma: 3, lain: 4 } };
@@ -1168,11 +1208,231 @@ function dayStats(res, P) {
     $('#btnClearAct').onclick = () => { P.tindakan = []; P.log = []; save(); rebuild(); render(); };
   }
 
+  /* ---------- Laporan ---------- */
+  let lapMode = 'harian', lapCache = { k: '', v: null }, blnCache = { k: '', v: null };
+  const MUSIM = { denggi: 'musim denggi', biasa: 'musim biasa', jerebu: 'jerebu', custom: 'case-mix tersuai' };
+  const tarikh = () => new Date().toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' });
+  const stateKey = () => JSON.stringify([P.pesakit, P.corak, P.staf, P.masa, P.rehat, P.mix, P.pelaras, P.makmal, P.xray, P.levers, P.tindakan, P.sasaran, P.seed]);
+  function simWith(over) {
+    const P2 = Object.assign({}, P, over);
+    return dayStats(simulate(P2, genPatients(P2.pesakit, P2.corak, P2.seed)), P2);
+  }
+  function hourly() {
+    const rows = [];
+    for (let h = 7; h <= 18; h++) {
+      const a = h * 60, b = a + 60;
+      let arr = 0, ws = 0, wn = 0, pk = 0;
+      for (const p of res.recs) {
+        if (p.arrive >= a && p.arrive < b) arr++;
+        for (const r of p.recs) if (r.st === 'doktor' && !r.prio && r.q >= a && r.q < b) { ws += r.s - r.q; wn++; }
+      }
+      for (const pt of series.doktor) if (pt[0] >= a && pt[0] < b) pk = Math.max(pk, pt[1]);
+      if (arr || wn || pk) rows.push({ h, arr, wn, w: wn ? ws / wn : 0, pk });
+    }
+    return rows;
+  }
+  function whatIf() {
+    const k = stateKey();
+    if (lapCache.k === k) return lapCache.v;
+    const out = [];
+    const add = (label, over) => { const d = simWith(over); out.push({ label, avgJ: d.avgJ, dr: d.dr, last: d.lastLeave, jimat: day.avgJ - d.avgJ }); };
+    const st = (s, n) => ({ staf: Object.assign({}, P.staf, { [s]: P.staf[s] + n }) });
+    add('Tambah 1 bilik doktor', st('doktor', 1));
+    add('Tambah 2 bilik doktor', st('doktor', 2));
+    add('Tambah 1 kaunter farmasi', st('farmasi', 1));
+    if (P.makmal && !P.levers.ftDemam) add('Laluan pantas demam (FBC di triaj)', { levers: Object.assign({}, P.levers, { ftDemam: true }) });
+    if (!P.levers.pendidik && P.staf.pendidik > 0) add('Pendidik diabetes ambil alih kaunseling DM kompleks', { levers: Object.assign({}, P.levers, { pendidik: true }) });
+    if (P.corak === 'pagi') add('Temujanji berperingkat (ketibaan sekata)', { corak: 'sekata' });
+    out.sort((a, b) => b.jimat - a.jimat);
+    lapCache = { k, v: out };
+    return out;
+  }
+  function findings(hr) {
+    const S = P.sasaran, f = [];
+    f.push('Purata masa dalam klinik ' + r0(day.avgJ) + ' minit, ' + (day.avgJ <= S.jumlah ? 'dalam' : 'melebihi') + ' sasaran ' + S.jumlah + ' minit.');
+    f.push(r0(day.dr) + '% pesakit berjumpa doktor dalam ' + S.jumpaDr + ' minit selepas tiba.');
+    let ws = null, wr = 0;
+    for (const s of visible()) { const r = day.st[s].avg / (S[s] || 30); if (r > wr) { wr = r; ws = s; } }
+    if (ws) {
+      let pk = 0, pt = 0;
+      for (const p of series[ws]) if (p[1] > pk) { pk = p[1]; pt = p[0]; }
+      f.push('Stesen paling sesak ialah ' + NAMA[ws] + ': purata tunggu ' + r0(day.st[ws].avg) + ' minit (sasaran ' + S[ws] + '), dengan puncak ' + pk + ' pesakit menunggu pada ' + fmt(pt) + '.');
+    }
+    const wh = hr.filter(x => x.wn >= 5).sort((a, b) => b.w - a.w)[0];
+    if (wh) f.push('Pesakit yang masuk giliran doktor antara ' + fmt(wh.h * 60) + ' dan ' + fmt(wh.h * 60 + 60) + ' menunggu paling lama, purata ' + r0(wh.w) + ' minit.');
+    const g = P.mix.map(d => ({ d, pt: (day.cnt[d.key] || 0) / day.n * 100, mn: (day.drMin[d.key] || 0) / day.drTot * 100 })).sort((a, b) => (b.mn - b.pt) - (a.mn - a.pt))[0];
+    if (g) f.push(g.d.nama + ' membentuk ' + r0(g.pt) + '% pesakit tetapi mengambil ' + r0(g.mn) + '% masa doktor. Purata masa doktor ' + (day.drTot / day.n).toFixed(1) + ' minit bagi setiap pesakit.');
+    f.push('Pesakit terakhir keluar pada ' + fmt(day.lastLeave) + (day.lastLeave > 1020 ? ', iaitu ' + r0(day.lastLeave - 1020) + ' minit selepas 17:00.' : '.'));
+    if (day.ulangan) f.push(day.ulangan + ' lawatan ulangan diperlukan kerana ujian tidak dapat dibuat di KK.');
+    if (day.hosp) f.push(day.hosp + ' pesakit dirujuk ke hospital pada hari yang sama.');
+    return f;
+  }
+  function bulanStats() {
+    const k = stateKey() + JSON.stringify(P.bulan);
+    if (blnCache.k === k) return blnCache.v;
+    const out = P.bulan.map((m, i) => {
+      const jumlah = +m.jumlah || 0, hari = +m.hari || 0;
+      if (jumlah <= 0 || hari <= 0) return { i, nama: m.nama, ok: false };
+      const avg = Math.max(20, Math.round(jumlah / hari));
+      const d = simWith({ pesakit: avg, tindakan: [] });
+      return { i, nama: m.nama, ok: true, jumlah, hari, avg, avgJ: d.avgJ, dr: d.dr, wDr: d.st.doktor.avg, last: d.lastLeave, need: avg * (d.drTot / d.n) / (480 * 0.85) };
+    });
+    blnCache = { k, v: out };
+    return out;
+  }
+  function senarioTxt() {
+    return P.pesakit + ' kedatangan OPD, ' + P.staf.doktor + ' bilik doktor, ' + (P.corak === 'pagi' ? 'puncak pagi' : 'temujanji berperingkat') + ', ' + (MUSIM[P.musim] || P.musim);
+  }
+  function textHarian() {
+    const hr = hourly(), wi = whatIf();
+    let t = 'ANALISA HARIAN ALIRAN PESAKIT OPD\n' + P.klinik + ' · ' + tarikh() + '\nSenario: ' + senarioTxt() + '\n(Data simulasi, bukan data pesakit sebenar)\n\nDAPATAN UTAMA\n';
+    findings(hr).forEach((x, i) => t += (i + 1) + '. ' + x + '\n');
+    t += '\nKESAN PILIHAN PENAMBAHBAIKAN\n';
+    wi.forEach(w => t += '- ' + w.label + ': masa dalam klinik ' + r0(w.avgJ) + ' min (' + (w.jimat >= 0.5 ? 'jimat ' + r0(w.jimat) : w.jimat <= -0.5 ? 'tambah ' + r0(-w.jimat) : 'tiada beza') + (Math.abs(w.jimat) >= 0.5 ? ' min' : '') + '), jumpa doktor ≤ ' + P.sasaran.jumpaDr + ' min ' + r0(w.dr) + '%\n');
+    return t;
+  }
+  function textBulanan() {
+    const b = bulanStats().filter(x => x.ok);
+    let t = 'ANALISA BULANAN ALIRAN PESAKIT OPD\n' + P.klinik + ' · ' + tarikh() + '\nTetapan: ' + P.staf.doktor + ' bilik doktor, ' + (MUSIM[P.musim] || P.musim) + '\n(Kedatangan sebenar; masa menunggu ialah simulasi hari biasa bagi setiap bulan)\n\n';
+    b.forEach(x => t += x.nama + ': ' + x.avg + ' sehari, masa dalam klinik ' + r0(x.avgJ) + ' min, jumpa doktor ≤ ' + P.sasaran.jumpaDr + ' min ' + r0(x.dr) + '%, perlu ~' + x.need.toFixed(1) + ' doktor\n');
+    return t;
+  }
+  const q = s => '"' + String(s).replace(/"/g, '""') + '"';
+  function csvHarian() {
+    const hr = hourly(), wi = whatIf(), L = [];
+    L.push(['Analisa harian aliran pesakit OPD', P.klinik, tarikh()].map(q).join(','));
+    L.push([q('Senario'), q(senarioTxt())].join(','));
+    L.push('');
+    L.push('Ukuran,Nilai');
+    L.push([q('Kedatangan OPD'), day.n].join(','));
+    L.push([q('Purata masa dalam klinik (min)'), day.avgJ.toFixed(1)].join(','));
+    L.push([q('Jumpa doktor dalam ' + P.sasaran.jumpaDr + ' min (%)'), day.dr.toFixed(1)].join(','));
+    L.push([q('Purata masa doktor setiap pesakit (min)'), (day.drTot / day.n).toFixed(1)].join(','));
+    L.push([q('Pesakit terakhir keluar'), fmt(day.lastLeave)].join(','));
+    L.push([q('Rujukan ke hospital'), day.hosp].join(','));
+    L.push([q('Lawatan ulangan untuk ujian'), day.ulangan].join(','));
+    L.push('');
+    L.push('Stesen,Purata tunggu (min),Tunggu maksimum (min),Sasaran (min)');
+    visible().forEach(s => L.push([q(NAMA[s]), day.st[s].avg.toFixed(1), day.st[s].max.toFixed(1), P.sasaran[s]].join(',')));
+    L.push('');
+    L.push('Jam,Ketibaan,Purata tunggu doktor (min),Puncak giliran doktor');
+    hr.forEach(x => L.push([fmt(x.h * 60), x.arr, x.w.toFixed(1), x.pk].join(',')));
+    L.push('');
+    L.push('Diagnosis,% pesakit,% masa doktor');
+    P.mix.forEach(d => L.push([q(d.nama), ((day.cnt[d.key] || 0) / day.n * 100).toFixed(1), ((day.drMin[d.key] || 0) / day.drTot * 100).toFixed(1)].join(',')));
+    L.push('');
+    L.push('Pilihan,Masa dalam klinik (min),Jimat (min),Jumpa doktor dalam sasaran (%),Pesakit terakhir keluar');
+    wi.forEach(w => L.push([q(w.label), w.avgJ.toFixed(1), w.jimat.toFixed(1), w.dr.toFixed(1), fmt(w.last)].join(',')));
+    return L.join('\n');
+  }
+  function csvBulanan() {
+    const L = ['Bulan,Jumlah kedatangan OPD,Hari bekerja,Purata sehari,Masa dalam klinik (min),Jumpa doktor dalam sasaran (%),Purata tunggu doktor (min),Pesakit terakhir keluar,Doktor setara diperlukan'];
+    bulanStats().filter(x => x.ok).forEach(x => L.push([q(x.nama), x.jumlah, x.hari, x.avg, x.avgJ.toFixed(1), x.dr.toFixed(1), x.wDr.toFixed(1), fmt(x.last), x.need.toFixed(1)].join(',')));
+    return L.join('\n');
+  }
+  function muatTurun(nama, teks) {
+    try {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['﻿' + teks], { type: 'text/csv;charset=utf-8' }));
+      a.download = nama; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      return true;
+    } catch (e) { return false; }
+  }
+  function kilat(btn, teks) { const o = btn.textContent; btn.textContent = teks; setTimeout(() => { btn.textContent = o; }, 1800); }
+
+  function htmlHarian() {
+    const S = P.sasaran, hr = hourly(), wi = whatIf();
+    let h = '<div class="card"><h2>Analisa harian: ' + esc(P.klinik) + '</h2><p class="hint">Senario: ' + esc(senarioTxt()) + ' · Dijana ' + tarikh() + ' · Data simulasi</p><div class="kpis">' +
+      kpi('Masa dalam klinik', r0(day.avgJ) + '<small> min</small>', 'Sasaran ≤ ' + S.jumlah + ' min', lvl(day.avgJ, S.jumlah)) +
+      kpi('Jumpa doktor ≤ ' + S.jumpaDr + ' min', r0(day.dr) + '<small>%</small>', 'Daripada ' + day.n + ' pesakit', day.dr >= 80 ? 'ok' : day.dr >= 60 ? 'warn' : 'crit') +
+      kpi('Tunggu doktor', r0(day.st.doktor.avg) + '<small> min</small>', 'Purata · maksimum ' + r0(day.st.doktor.max) + ' min', lvl(day.st.doktor.avg, S.doktor)) +
+      kpi('Masa doktor', (day.drTot / day.n).toFixed(1) + '<small> min</small>', 'Purata setiap pesakit', '') +
+      kpi('Pesakit terakhir keluar', fmt(day.lastLeave), day.lastLeave > 1020 ? r0(day.lastLeave - 1020) + ' min selepas 17:00' : 'Dalam waktu operasi', day.lastLeave > 1050 ? 'crit' : day.lastLeave > 1020 ? 'warn' : 'ok') +
+      kpi('Rujukan hospital', day.hosp + '', day.ulangan ? day.ulangan + ' lawatan ulangan' : 'Tiada lawatan ulangan', '') + '</div></div>';
+    h += '<div class="card"><h2>Dapatan utama</h2><ol class="find">' + findings(hr).map(x => '<li>' + esc(x) + '</li>').join('') + '</ol></div>';
+    h += '<div class="card"><h2>Ikut jam</h2><p class="hint">Purata tunggu dikira bagi pesakit yang masuk giliran doktor pada jam itu.</p><div class="tbl-wrap"><table><thead><tr><th>Jam</th><th>Ketibaan</th><th>Tunggu doktor</th><th>Puncak giliran</th></tr></thead><tbody>' +
+      hr.map(x => '<tr><td>' + fmt(x.h * 60) + '</td><td>' + x.arr + '</td><td class="' + (x.wn && x.w >= S.doktor ? 'bad' : '') + '">' + (x.wn ? r0(x.w) + ' min' : '—') + '</td><td>' + x.pk + '</td></tr>').join('') + '</tbody></table></div></div>';
+    h += '<div class="card"><h2>Kesan pilihan penambahbaikan</h2><p class="hint">Setiap pilihan diuji untuk sepanjang hari, satu demi satu, berbanding senario semasa (' + r0(day.avgJ) + ' min).</p><div class="tbl-wrap"><table><thead><tr><th>Pilihan</th><th>Masa dalam klinik</th><th>Beza</th><th>Jumpa doktor ≤ ' + S.jumpaDr + '</th><th>Terakhir keluar</th></tr></thead><tbody>' +
+      wi.map(w => '<tr><td>' + esc(w.label) + '</td><td>' + r0(w.avgJ) + ' min</td><td class="' + (w.jimat >= 0.5 ? 'good' : w.jimat <= -0.5 ? 'bad' : '') + '">' + (Math.abs(w.jimat) < 0.5 ? '—' : (w.jimat > 0 ? '−' : '+') + r0(Math.abs(w.jimat)) + ' min') + '</td><td>' + r0(w.dr) + '%</td><td>' + fmt(w.last) + '</td></tr>').join('') + '</tbody></table></div></div>';
+    return h;
+  }
+
+  function htmlBulanan() {
+    const S = P.sasaran, all = bulanStats(), b = all.filter(x => x.ok);
+    let h = '<div class="card noprint"><h2>Data kedatangan bulanan</h2><p class="hint">Jumlah kedatangan OPD sebulan dan bilangan hari bekerja. Enam bulan pertama ialah data PKDHL untuk KK Bangi, dengan 20 hari bekerja seperti dalam fail asal. Ubah atau tambah bulan lain di sini.</p><div class="tbl-wrap"><table class="mtbl"><thead><tr><th>Bulan</th><th>Jumlah kedatangan</th><th>Hari bekerja</th><th>Purata sehari</th><th></th></tr></thead><tbody>' +
+      P.bulan.map((m, i) => '<tr><td><input type="text" data-i="' + i + '" data-f="nama" value="' + esc(m.nama) + '" aria-label="Nama bulan"></td><td><input type="number" min="0" data-i="' + i + '" data-f="jumlah" value="' + m.jumlah + '" aria-label="Jumlah kedatangan"></td><td><input type="number" min="1" max="31" data-i="' + i + '" data-f="hari" value="' + m.hari + '" aria-label="Hari bekerja"></td><td>' + (all[i].ok ? all[i].avg : '—') + '</td><td><button class="ghost" data-del="' + i + '" aria-label="Buang ' + esc(m.nama) + '">Buang</button></td></tr>').join('') +
+      '</tbody></table></div><div class="btns" style="margin-top:12px"><button class="btn" id="blnAdd">Tambah bulan</button></div></div>';
+    if (!b.length) return h + '<div class="card"><p class="empty">Masukkan sekurang-kurangnya satu bulan dengan jumlah kedatangan dan hari bekerja.</p></div>';
+    const top = b.slice().sort((x, y) => y.avg - x.avg)[0], low = b.slice().sort((x, y) => x.avg - y.avg)[0];
+    const lebih = b.filter(x => x.avgJ > S.jumlah);
+    const fs = [];
+    fs.push('Bulan paling sibuk ialah ' + top.nama + ' dengan purata ' + top.avg + ' kedatangan sehari. Bulan paling rendah ialah ' + low.nama + ' (' + low.avg + ' sehari).');
+    if (b.length > 1) { const d = (b[b.length - 1].avg / b[0].avg - 1) * 100; fs.push('Dari ' + b[0].nama + ' ke ' + b[b.length - 1].nama + ', purata kedatangan harian ' + (d >= 0 ? 'naik ' : 'turun ') + r0(Math.abs(d)) + '%.'); }
+    fs.push(lebih.length ? 'Dengan ' + P.staf.doktor + ' bilik doktor, ' + lebih.length + ' daripada ' + b.length + ' bulan melebihi sasaran ' + S.jumlah + ' minit dalam klinik: ' + lebih.map(x => x.nama).join(', ') + '.' : 'Dengan ' + P.staf.doktor + ' bilik doktor, semua bulan berada dalam sasaran ' + S.jumlah + ' minit dalam klinik.');
+    fs.push('Pada bulan paling sibuk, klinik memerlukan kira-kira ' + top.need.toFixed(1) + ' doktor setara pada utilisasi 85%.');
+    // carta
+    const W = 720, H = 240, pl = 36, pr = 12, pt = 26, pb = 40;
+    const ymax = Math.ceil(Math.max(S.jumlah, ...b.map(x => x.avgJ)) * 1.15 / 20) * 20;
+    const bw = (W - pl - pr) / b.length;
+    const Y = v => pt + (1 - v / ymax) * (H - pt - pb);
+    let c = '';
+    for (let v = 0; v <= ymax; v += ymax / 4) c += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="var(--line)"/><text x="' + (pl - 6) + '" y="' + (Y(v) + 4) + '" text-anchor="end" font-size="11" fill="var(--muted)">' + r0(v) + '</text>';
+    b.forEach((x, i) => {
+      const cx = pl + bw * i + bw / 2, w = Math.min(56, bw * 0.6), L = lvl(x.avgJ, S.jumlah);
+      c += '<rect x="' + (cx - w / 2) + '" y="' + Y(x.avgJ) + '" width="' + w + '" height="' + (H - pb - Y(x.avgJ)) + '" rx="4" fill="var(--' + L + ')" fill-opacity=".8"/>' +
+        '<text x="' + cx + '" y="' + (Y(x.avgJ) - 6) + '" text-anchor="middle" font-size="12" font-weight="600" fill="var(--ink)">' + r0(x.avgJ) + '</text>' +
+        '<text x="' + cx + '" y="' + (H - pb + 15) + '" text-anchor="middle" font-size="11" fill="var(--ink)">' + esc(x.nama.length > 9 ? x.nama.slice(0, 8) + '…' : x.nama) + '</text>' +
+        '<text x="' + cx + '" y="' + (H - pb + 30) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + x.avg + '/hari</text>';
+    });
+    c += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + Y(S.jumlah) + '" y2="' + Y(S.jumlah) + '" stroke="var(--ink)" stroke-dasharray="4 4" stroke-width="1.5"/><text x="' + (W - pr) + '" y="' + (Y(S.jumlah) - 5) + '" text-anchor="end" font-size="11" fill="var(--ink)">Sasaran ' + S.jumlah + ' min</text>';
+    h += '<div class="card"><h2>Analisa bulanan: ' + esc(P.klinik) + '</h2><p class="hint">Purata masa dalam klinik (minit) pada hari biasa bagi setiap bulan. Kedatangan ialah angka sebenar; masa ialah simulasi dengan ' + P.staf.doktor + ' bilik doktor dan case-mix semasa. Dijana ' + tarikh() + '.</p>' +
+      '<div class="tbl-wrap"><svg viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + Math.max(600, b.length * 96) + 'px;width:100%;height:auto" role="img" aria-label="Purata masa dalam klinik bagi setiap bulan">' + c + '</svg></div>' +
+      '<ol class="find" style="margin-top:14px">' + fs.map(x => '<li>' + esc(x) + '</li>').join('') + '</ol></div>';
+    h += '<div class="card"><h2>Jadual bulanan</h2><div class="tbl-wrap"><table><thead><tr><th>Bulan</th><th>Sehari</th><th>Dalam klinik</th><th>Jumpa doktor ≤ ' + S.jumpaDr + '</th><th>Tunggu doktor</th><th>Terakhir keluar</th><th>Doktor perlu</th><th class="noprint"></th></tr></thead><tbody>' +
+      b.map(x => '<tr><td>' + esc(x.nama) + '</td><td>' + x.avg + '</td><td class="' + (x.avgJ > S.jumlah ? 'bad' : 'good') + '">' + r0(x.avgJ) + ' min</td><td>' + r0(x.dr) + '%</td><td>' + r0(x.wDr) + ' min</td><td>' + fmt(x.last) + '</td><td>' + x.need.toFixed(1) + '</td><td class="noprint"><button class="ghost" data-guna="' + x.i + '">Simulasi</button></td></tr>').join('') +
+      '</tbody></table></div><p class="mixnote noprint">Tekan Simulasi untuk memuatkan purata bulan itu ke dalam Dashboard dan analisa harian.</p></div>';
+    return h;
+  }
+
+  function renderLaporan() {
+    document.querySelectorAll('#segLap button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === lapMode)));
+    const body = $('#lapBody');
+    body.innerHTML = lapMode === 'harian' ? htmlHarian() : htmlBulanan();
+    if (lapMode === 'bulanan') {
+      body.querySelectorAll('.mtbl input').forEach(inp => inp.onchange = e => {
+        const m = P.bulan[+e.target.dataset.i], f = e.target.dataset.f;
+        m[f] = f === 'nama' ? e.target.value : Math.max(0, +e.target.value || 0);
+        save(); renderLaporan();
+      });
+      body.querySelectorAll('button[data-del]').forEach(x => x.onclick = () => { P.bulan.splice(+x.dataset.del, 1); save(); renderLaporan(); });
+      body.querySelectorAll('button[data-guna]').forEach(x => x.onclick = () => {
+        const m = bulanStats()[+x.dataset.guna];
+        P.pesakit = m.avg; P.tindakan = []; P.log = []; lapMode = 'harian';
+        save(); rebuild(); render(); window.scrollTo(0, 0);
+      });
+      const add = $('#blnAdd');
+      if (add) add.onclick = () => { P.bulan.push({ nama: 'Bulan baharu', jumlah: 0, hari: 20 }); save(); renderLaporan(); };
+    }
+  }
+  document.querySelectorAll('#segLap button').forEach(x => x.onclick = () => { lapMode = x.dataset.v; renderLaporan(); });
+  $('#lapSalin').onclick = e => {
+    const t = lapMode === 'harian' ? textHarian() : textBulanan(), btn = e.currentTarget;
+    try { navigator.clipboard.writeText(t).then(() => kilat(btn, 'Disalin'), () => kilat(btn, 'Tidak dapat disalin')); } catch (err) { kilat(btn, 'Tidak dapat disalin'); }
+  };
+  $('#lapCsv').onclick = e => {
+    const nm = (P.klinik || 'kk').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const ok = lapMode === 'harian' ? muatTurun('analisa-harian-' + nm + '.csv', csvHarian()) : muatTurun('analisa-bulanan-' + nm + '.csv', csvBulanan());
+    kilat(e.currentTarget, ok ? 'Dimuat turun' : 'Tidak dapat dimuat turun');
+  };
+  $('#lapCetak').onclick = () => { try { window.print(); } catch (e) {} };
+
+
   function changed() { save(); rebuild(); render(); }
 
   function currentTab() {
     const h = (location.hash || '').slice(1);
-    return ['dashboard', 'simulator', 'peta', 'tindakan'].includes(h) ? h : 'dashboard';
+    return ['dashboard', 'simulator', 'peta', 'tindakan', 'laporan'].includes(h) ? h : 'dashboard';
   }
 
   function render() {
@@ -1185,6 +1445,7 @@ function dayStats(res, P) {
     else if (tab === 'simulator') { syncForm(); renderCompare(); }
     else if (tab === 'peta') renderMap(sn);
     else if (tab === 'tindakan') { renderRecs(); renderLog(); }
+    else if (tab === 'laporan') renderLaporan();
   }
 
   function setT(t) { T = t; render(); }
